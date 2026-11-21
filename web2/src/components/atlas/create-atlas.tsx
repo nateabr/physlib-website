@@ -95,7 +95,7 @@ function newFileUrl(repo: string, branch: string, path: string, text: string): s
 }
 
 export function CreateAtlas({ atlas }: { atlas: Atlas }) {
-  const { repo, branch, nodes, directories } = atlas;
+  const { repo, branch, commit, nodes, directories } = atlas;
   const byPath = useMemo(() => new Map(nodes.map((n) => [n.path, n])), [nodes]);
   const dirPaths = useMemo(() => new Set(directories.map((d) => d.path)), [directories]);
   const mapped = useMemo(
@@ -152,8 +152,8 @@ export function CreateAtlas({ atlas }: { atlas: Atlas }) {
   }, [directories, filter]);
 
   const context: ArticleContextValue = useMemo(
-    () => ({ repo, branch, leanReferences: [], references: [], byPath }),
-    [repo, branch, byPath],
+    () => ({ repo, branch, commit, leanReferences: [], references: [], byPath }),
+    [repo, branch, commit, byPath],
   );
 
   const issue: IssueDraft = atlasIssue({
@@ -165,7 +165,7 @@ export function CreateAtlas({ atlas }: { atlas: Atlas }) {
       `**Area:** ${where === "existing" ? "an existing folder of Physlib" : "a new area, not yet in Physlib"}`,
     ],
     file: `${path}/Atlas.md`,
-    commit: atlas.commit,
+    commit,
     operation: { op: "create-file" },
     base: null,
   });

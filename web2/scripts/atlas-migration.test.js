@@ -47,7 +47,11 @@ function fixture(check) {
 }
 
 test("CLI reads coherent legacy, partial, renamed, and mixed Git revisions", () => fixture((f) => {
-  const legacy = f.commit("Legacy articles");
+  const walkthrough = "docs/GettingStarted/FirstAPIMap.md";
+  const beforeWalkthrough = f.commit("Legacy articles without the beginner walkthrough");
+  assert.equal(f.generate(beforeWalkthrough).firstContributionFile, undefined);
+  f.write(walkthrough, "# Write your first API map");
+  const legacy = f.commit("Add the legacy walkthrough");
   f.git("checkout", "-qb", "renamed");
   for (const area of ["Time", "Space"]) {
     fs.renameSync(path.join(f.repo, `Physlib/${area}/API-map.md`), path.join(f.repo, `Physlib/${area}/Atlas.md`));
@@ -70,6 +74,7 @@ test("CLI reads coherent legacy, partial, renamed, and mixed Git revisions", () 
     assert.equal(data.commit, sha);
     assert.equal(data.branch, ref);
     assert.equal(data.guideFile, guide);
+    assert.equal(data.firstContributionFile, ref === "master" ? walkthrough : undefined);
     assert.equal(data.nodes.length, 2);
     const time = data.nodes.find((n) => n.path === "Physlib/Time");
     assert.equal(time.title, "Time");

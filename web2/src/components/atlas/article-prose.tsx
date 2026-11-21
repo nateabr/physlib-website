@@ -4,12 +4,15 @@ import { createContext, useContext, useRef, useState } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import type { AtlasDeclaration, AtlasLeanReference, AtlasNode, AtlasReference } from "@/lib/yaml";
 import {
   atlasHref,
   backlinkLabel,
   claimCounts,
-  docsUrl,
+  declarationLinks,
   findLeanReference,
   findReference,
   parseCiteHref,
@@ -29,6 +32,7 @@ import { ATLAS_STATUS_DOT, atlasStatusKind } from "@/lib/atlas-status";
 export type ArticleContextValue = {
   repo: string;
   branch: string;
+  commit: string;
   leanReferences: AtlasLeanReference[];
   references: AtlasReference[];
   byPath: Map<string, AtlasNode>;
@@ -190,16 +194,16 @@ const KIND_LABEL: Record<string, string> = {
   instance: "instance",
 };
 
-/** A declaration named in a Lean reference: links to its doc-gen4 entry,
+/** A declaration named in a Lean reference: links to its docs or source,
  *  previewing its signature and docstring on hover. */
 export function DeclarationLink({ file, decl }: { file: string; decl: AtlasDeclaration }) {
-  const { repo, branch } = useArticle();
+  const { docs, source } = declarationLinks(useArticle(), file, decl);
   const resolved = !!decl.fullName;
   return (
     <HoverCard
       width={420}
       trigger={
-        <a href={docsUrl(file, decl.fullName)} className="atlas-decl">
+        <a href={docs ?? source} className="atlas-decl">
           {decl.text}
         </a>
       }
@@ -226,10 +230,8 @@ export function DeclarationLink({ file, decl }: { file: string; decl: AtlasDecla
         </span>
       )}
       <span className="mt-2 flex gap-3 text-[12px]">
-        <a href={docsUrl(file, decl.fullName)} className="atlas-link">
-          Documentation
-        </a>
-        <ExternalLink href={sourceUrl(repo, branch, file, decl.line)}>Source</ExternalLink>
+        {docs && <a href={docs} className="atlas-link">Documentation</a>}
+        <ExternalLink href={source}>Source</ExternalLink>
       </span>
     </HoverCard>
   );
@@ -293,7 +295,8 @@ export function ReferenceText({ reference }: { reference: AtlasReference }) {
 // ─── Citations ──────────────────────────────────────────────────────────────
 
 function Citation({ href }: { href: string }) {
-  const { leanReferences, references } = useArticle();
+  const article = useArticle();
+  const { leanReferences, references } = article;
   const cite = parseCiteHref(href);
   if (!cite) return null;
 
@@ -350,14 +353,17 @@ function Citation({ href }: { href: string }) {
             <LeanFileLink reference={lean} />
           </span>
           <span className="mt-1.5 flex flex-col gap-1.5">
-            {lean.declarations.map((d, i) => (
-              <span key={i} className="block">
-                <a href={docsUrl(lean.file, d.fullName)} className="atlas-decl">
-                  {d.text}
-                </a>
-                {d.doc && <span className="block text-[12px] text-muted line-clamp-2">{d.doc}</span>}
-              </span>
-            ))}
+            {lean.declarations.map((d, i) => {
+              const { docs, source } = declarationLinks(article, lean.file, d);
+              return (
+                <span key={i} className="block">
+                  <a href={docs ?? source} className="atlas-decl">
+                    {d.text}
+                  </a>
+                  {d.doc && <span className="block text-[12px] text-muted line-clamp-2">{d.doc}</span>}
+                </span>
+              );
+            })}
           </span>
         </>
       ) : lit ? (
@@ -378,9 +384,10 @@ function Citation({ href }: { href: string }) {
 /** Article prose: markdown already passed through `linkCitations`. */
 export function ArticleProse({ markdown }: { markdown: string }) {
   return (
-    <div className="atlas-prose">
+    <div className="atlas-prose [&_.katex-display]:overflow-x-auto">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
         components={{
           a: ({ href, children }) => {
             if (href?.startsWith("#cite-")) return <Citation href={href} />;

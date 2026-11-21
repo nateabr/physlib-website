@@ -2,10 +2,86 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AtlasNode } from "@/lib/yaml";
+import { buildFolderTree, flattenFolderTree } from "@/lib/atlas-folders";
 import { buildAtlasForest, type AtlasTreeEntry } from "@/lib/atlas-tree";
 import { selectAtlasEntry } from "@/lib/atlas-hash";
-import { atlasStatusKind } from "@/lib/atlas-status";
+import { ATLAS_STATUS_DOT, atlasStatusKind } from "@/lib/atlas-status";
 import { TopRightArrowIcon } from "@/components/monthly-updates/icons";
+
+const views = [
+  { value: "selected", label: "List View" },
+  { value: "full", label: "Graph View" },
+] as const;
+
+type MapLink = { path: string; title: string; node?: AtlasNode };
+
+function MapLinks({ items, activePath }: { items: MapLink[]; activePath: string }) {
+  return (
+    <ul className="divide-y divide-border">
+      {items.map(({ path, title, node }) => (
+        <li key={path}>
+          <a
+            href={`#${path}`}
+            aria-current={path === activePath ? "true" : undefined}
+            onClick={(event) => {
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              selectAtlasEntry(path);
+            }}
+            className="flex items-start gap-2 rounded px-2 py-2 text-sm hover:bg-surface-secondary aria-[current=true]:text-accent"
+          >
+            <span
+              aria-hidden
+              className={`mt-1.5 size-2 shrink-0 rounded-full ${
+                node ? ATLAS_STATUS_DOT[atlasStatusKind(node)] : "border border-dashed border-muted"
+              }`}
+            />
+            <span className="min-w-0 break-words">
+              <span className="block font-medium">{title}</span>
+              <span className="block text-xs text-muted">
+                {node ? statusStyle(node).label : "Map missing"}
+              </span>
+            </span>
+          </a>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function SelectedApi({ nodes, activePath }: { nodes: AtlasNode[]; activePath: string }) {
+  const byPath = new Map(nodes.map((node) => [node.path, node]));
+  const referenced = nodes.flatMap((node) => node.parents).find((entry) => entry.path === activePath);
+  const selected = byPath.get(activePath) ??
+    (referenced ? undefined : flattenFolderTree(buildFolderTree(nodes))[0]);
+  const path = selected?.path ?? referenced?.path;
+  if (!path) return <p className="text-sm text-muted">No Atlas articles yet.</p>;
+
+  const citations = selected?.parents.map(({ path, name }) => ({
+    path, title: byPath.get(path)?.title ?? name, node: byPath.get(path),
+  })) ?? [];
+  const citedBy = nodes
+    .filter((node) => node.parents.some((parent) => parent.path === path))
+    .map((node) => ({ path: node.path, title: node.title, node }));
+
+  return (
+    <div className="rounded-xl border border-border bg-surface p-4">
+      <h3 className="mb-4 font-semibold">{selected?.title ?? referenced?.name}</h3>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {[{ title: "Cites", items: citations }, { title: "Cited by", items: citedBy }].map(
+          ({ title, items }) => (
+            <section key={title} className="min-w-0 border-t border-border pt-2">
+              <h4 className="mb-1 text-xs font-medium text-muted">{title} · {items.length}</h4>
+              {items.length ? <MapLinks items={items} activePath={activePath} /> : (
+                <p className="px-2 py-2 text-sm text-muted">None</p>
+              )}
+            </section>
+          ),
+        )}
+      </div>
+    </div>
+  );
+}
 
 /**
  * Centers a box in the flowchart's viewport by scrolling only the flowchart's
@@ -139,6 +215,13 @@ function FlowNode({
 
 export function AtlasFlowchart({ nodes }: { nodes: AtlasNode[] }) {
   const [activePath, setActivePath] = useState("");
+  const [view, setView] = useState<(typeof views)[number]["value"]>("selected");
+  const scroller = useRef<HTMLDivElement>(null);
+
+  function stepGraph(direction: -1 | 1) {
+    const panel = scroller.current;
+    if (panel) panel.scrollBy({ left: direction * panel.clientWidth * 0.8, behavior: "smooth" });
+  }
 
   /**
    * Selecting from the map changes the detail card *above* the map, and that
@@ -183,25 +266,55 @@ export function AtlasFlowchart({ nodes }: { nodes: AtlasNode[] }) {
     onHashChange();
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
-  }, []);
+  }, [view]);
 
-  const forest = useMemo(() => buildAtlasForest(nodes), [nodes]);
+  const forest = useMemo(() => view === "full" ? buildAtlasForest(nodes) : [], [nodes, view]);
 
   return (
-    <div
-      data-atlas-flowchart-scroller
-      className="overflow-x-auto rounded-xl border border-border bg-surface"
-    >
-      <ul className="api-tree">
-        {forest.map((entry) => (
-          <FlowNode
-            key={entry.path}
-            entry={entry}
-            activePath={activePath}
-            onSelect={handleSelect}
-          />
+    <>
+      <div aria-label="Dependency map view" role="group" className="mb-4 flex flex-wrap gap-2">
+        {views.map(({ value, label }) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={view === value}
+            onClick={() => setView(value)}
+            className="rounded-lg border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:text-foreground aria-pressed:border-accent aria-pressed:text-accent"
+          >
+            {label}
+          </button>
         ))}
-      </ul>
-    </div>
+      </div>
+      {view === "selected" && <SelectedApi nodes={nodes} activePath={activePath} />}
+      {view === "full" && (
+        <>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted">Dashed boxes mark cited topics without an Atlas article.</p>
+            <div className="flex gap-1">
+              <button type="button" onClick={() => stepGraph(-1)} aria-label="Scroll graph left"
+                className="size-8 rounded border border-border text-muted hover:text-accent">←</button>
+              <button type="button" onClick={() => stepGraph(1)} aria-label="Scroll graph right"
+                className="size-8 rounded border border-border text-muted hover:text-accent">→</button>
+            </div>
+          </div>
+          <div
+            ref={scroller}
+            data-atlas-flowchart-scroller
+            className="overflow-x-auto rounded-xl border border-border bg-surface"
+          >
+            <ul className="api-tree w-max min-w-full">
+              {forest.map((entry) => (
+                <FlowNode
+                  key={entry.path}
+                  entry={entry}
+                  activePath={activePath}
+                  onSelect={handleSelect}
+                />
+              ))}
+            </ul>
+          </div>
+        </>
+      )}
+    </>
   );
 }

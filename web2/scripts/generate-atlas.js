@@ -425,13 +425,19 @@ function main() {
 
   nodes.sort((a, b) => a.path.localeCompare(b.path));
 
+  const guideFile = existingFiles.has("docs/ATLAS_GUIDE.md") ? "docs/ATLAS_GUIDE.md" : "docs/API_MAP_GUIDE.md";
+  const legacyWalkthrough = "docs/GettingStarted/FirstAPIMap.md";
+  const hasLegacyWalkthrough = existingFiles.has(legacyWalkthrough) &&
+    guideFile === "docs/API_MAP_GUIDE.md" && files.every((file) => file.endsWith("/API-map.md"));
+
   const out = {
     repo: `${OWNER}/${REPO}`,
     branch: branch.name,
     // The commit the maps were read at - the base an edit suggested on the
     // site applies to (see src/lib/atlas-issue.ts).
     commit,
-    guideFile: existingFiles.has("docs/ATLAS_GUIDE.md") ? "docs/ATLAS_GUIDE.md" : "docs/API_MAP_GUIDE.md",
+    guideFile,
+    firstContributionFile: hasLegacyWalkthrough ? legacyWalkthrough : undefined,
     generatedAt: new Date().toISOString(),
     nodes,
     directories: leanDirectories(allFiles),
